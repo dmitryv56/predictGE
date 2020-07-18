@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import math
 import numpy as np
 from datetime import timedelta
 import matplotlib.pyplot as plt
@@ -101,6 +102,37 @@ def set_train_test_sequence(df, dt_dset,rcpower_dset, f = None ):
 
     return df_train, df_val, df_test, datePredict,actvalPredict
 
+
+def dsets_logging(dt_dset, rcpower_dset, df_train,df_val,df_test = None, f = None ):
+    """  dt_dset - actual name  of  "Date Time" column in the input csv -dataset
+        rcpower_dset - actual name of the interes value column  in the input csv-dataset
+        df_train - training dataset is a part of pandas' DataFrame
+        df_val   - validating dataset is the next part of pandas' DataFrame
+        df_test - test dataset if it not None.
+        f - log file handler
+    """
+    if (f is None):
+        return
+
+    print('Train dates: {} to {}'.format(df_train[dt_dset].min(), df_train[dt_dset].max()))
+    f.write("\nTrain dataset\n")
+    f.write('Train dates: {} to {}\n\n'.format(df_train[dt_dset].min(), df_train[dt_dset].max()))
+    for i in range(len(df_train)):
+        f.write('{} {}\n'.format(df_train[dt_dset][i], df_train[rcpower_dset][i]))
+
+    print('Validation dates: {} to {}'.format(df_val[dt_dset].min(), df_val[dt_dset].max()))
+    f.write("\nValidation dataset\n")
+    f.write('Validation dates: {} to {}\n\n'.format(df_val[dt_dset].min(), df_val[dt_dset].max()))
+    for i in range(len(df_train), len(df_train) + len(df_val)):
+        f.write('{} {}\n'.format(df_val[dt_dset][i], df_val[rcpower_dset][i]))
+
+    print('Test dates: {} to {}'.format(df_test[dt_dset].min(), df_test[dt_dset].max()))
+    f.write("\nTest dataset\n")
+    f.write('Test dates: {} to {}\n\n'.format(df_test[dt_dset].min(), df_test[dt_dset].max()))
+    for i in range(len(df_train) + len(df_val), len(df_train) + len(df_val) + len(df_test)):
+        f.write('{} {}\n'.format(df_test[dt_dset][i], df_test[rcpower_dset][i]))
+
+    return
 
 
 ###################################################################################################################
