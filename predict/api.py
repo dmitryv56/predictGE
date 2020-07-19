@@ -1,9 +1,27 @@
+#!/usr/bin/python3
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+from tensorflow.keras.utils import Sequence
+
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.metrics import MeanSquaredError
+from tensorflow.keras.layers import LSTM
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import Bidirectional,TimeDistributed,Flatten
+
+from tensorflow.keras.layers import Conv1D
+from tensorflow.keras.layers import MaxPooling1D
+
 import pandas as pd
 import os
 import math
 import numpy as np
 from datetime import timedelta
 import matplotlib.pyplot as plt
+
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error
 import time
 import shutil
 
@@ -38,6 +56,17 @@ def myprint_MAE(history, n_steps):
     plt.show(block=False)
     plt.savefig("MAE_{}.png".format(n_steps))
 
+def chart_MAE(history, n_steps):
+    # Plot history: MAE
+    plt.plot(history.history['loss'], label='MAE (training data)')
+    plt.plot(history.history['val_loss'], label='MAE (validation data)')
+    plt.title('Mean Absolute Error (Time Steps = {}'.format(n_steps))
+    plt.ylabel('MAE value')
+    plt.xlabel('No. epoch')
+    plt.legend(loc="upper left")
+    plt.show(block=False)
+    plt.savefig("MAE_{}.png".format(n_steps))
+
 
 def myprint_MSE(history, n_steps):
     # Plot history: MSE
@@ -50,6 +79,18 @@ def myprint_MSE(history, n_steps):
     plt.show(block=False)
     plt.savefig("MSE_{}.png".format(n_steps))
 
+def chart_MSE(history, n_steps):
+    # Plot history: MSE
+    plt.plot(history.history['mean_squared_error'], label='MSE (training data)')
+    plt.plot(history.history['val_mean_squared_error'], label='MSE (validation data)')
+    plt.title('MSE (Time Steps = {}'.format(n_steps))
+    plt.ylabel('MSE value')
+    plt.xlabel('No. epoch')
+    plt.legend(loc="upper left")
+    plt.show(block=False)
+    plt.savefig("MSE_{}.png".format(n_steps))
+
+# read_my_dataset obsolited.  readDataSet should be used instead
 def read_my_dataset(csv_path):
     df = pd.read_csv(csv_path)
     df.head()
@@ -74,7 +115,128 @@ def read_my_dataset(csv_path):
 
     return df,dt_dset,rcpower_dset
 
+def readDataSet( csv_path, dt_dset ,rcpower_dset, discret, f=None  ):
+    """
+
+    :param csv_path :  csv -file was made by excel export.It can contain data on many characteristics. For time series ,
+                        we need data about date and time and actual data about some feature, like as Imbalance in the
+                        power grid. If we consider cvs-dataset as a matrix, then the first row or header contains the
+                        names of the columns. The samples must de equidistance
+    :param dt_dset:     name of date/time column
+    :param rcpower_dset:name of actual characteristic.
+    :discret :          discretization, this used for logging
+    :f :                log file handler
+    :return:            df -pandas DataFrame object
+    """
+    df = pd.read_csv(csv_path)
+    df.head()
+
+    # %%time   T.B.D.
+
+    # This code is copied from https://towardsdatascience.com/time-series-analysis-visualization-forecasting-with-lstm-77a905180eba
+    # with a few minor changes.
+    #
+    #rcpower_dset = RCPOWER_DSET
+    #dt_dset = DT_DSET
+
+    df[rcpower_dset] = pd.to_numeric(df[rcpower_dset], errors='coerce')
+    # for i in range(490):
+    #    df[rcpower_dset][i]=i
+    df = df.dropna(subset=[rcpower_dset])
+
+    df[dt_dset] = pd.to_datetime(df[dt_dset], dayfirst=True)
+
+    df = df.loc[:, [dt_dset, rcpower_dset]]
+    df.sort_values(dt_dset, inplace=True, ascending=True)
+    df = df.reset_index(drop=True)
+
+    print('Number of rows and columns after removing missing values:', df.shape)
+    print('The time series starts from: ', df[dt_dset].min())
+    print('The time series ends on: ', df[dt_dset].max())
+
+    df.info()
+    df.head(10)
+
+    if f is None:
+
+        pass
+    else:
+
+        f.write('Number of rows and columns after removing missing values: {}\n'.format(df.shape))
+        f.write('The time series starts from: {}\n'.format(df[dt_dset].min()))
+        f.write('The time series ends on: {}\n\n'.format( df[dt_dset].max()))
+    return df
+
+
+def set_train_val_test_sequence(df, dt_dset, rcpower_dset, test_cut_off,val_cut_off, f = None ):
+    """
+
+    :param df: DataFrame object
+    :param dt_dset: - date/time  header name, i.e. "Date Time"
+    :param rcpower_dset: - actual characteristic header name, i.e. "Imbalance"
+    :param test_cut_off: - value to pass time delta value in the 'minutes' resolution or None, like as
+                           'minutes=<value>.' NOte: the timedelta () function does not accept string as parameter, but
+                           as value timedelta(minutes=value)
+                           The last sampled values before time cutoff represent the test sequence.
+    :param val_cut_off: -  value to pass time delta value in the 'minutes' resolution or None, like as
+                           'minutes=<value>.'
+                           The last sampled values before the test sequence.
+
+    :param f:            - log file hadler
+    :return:
+    """
+    if test_cut_off is None or test_cut_off=="":
+        test_cutoff_date = df[dt_dset].max()
+        df_test = None
+    else:
+        test_cutoff_date = df[dt_dset].max() - timedelta(minutes=test_cut_off)
+        df_test = df[df[dt_dset] > test_cutoff_date]
+
+    if val_cut_off is None or val_cut_off == "":
+        df_val = None
+    else:
+        val_cutoff_date = test_cutoff_date - timedelta(minutes=val_cut_off)
+        df_val = df[(df[dt_dset] > val_cutoff_date) & (df[dt_dset] <= test_cutoff_date)]
+
+
+
+    df_train = df[df[dt_dset] <= val_cutoff_date]
+
+    print('Train dates: {} to {}'.format(df_train[dt_dset].min(), df_train[dt_dset].max()))
+    f.write("\nTrain dataset\n")
+    f.write('Train dates: {} to {}\n\n'.format(df_train[dt_dset].min(), df_train[dt_dset].max()))
+    for i in range(len(df_train)):
+        f.write('{} {}\n'.format(df_train[dt_dset][i], df_train[rcpower_dset][i]))
+
+    if df_val is None:
+        pass
+    else:
+        print('Validation dates: {} to {}'.format(df_val[dt_dset].min(), df_val[dt_dset].max()))
+        f.write("\nValidation dataset\n")
+        f.write('Validation  dates: {} to {}\n\n'.format(df_val[dt_dset].min(), df_val[dt_dset].max()))
+        for i in range(len(df_train), len(df_train) + len(df_val)):
+            f.write('{} {}\n'.format(df_val[dt_dset][i], df_val[rcpower_dset][i]))
+
+    if df_test is None:
+        pass
+    else:
+        print('Test dates: {} to {}'.format(df_test[dt_dset].min(), df_test[dt_dset].max()))
+        f.write("\nTest dataset\n")
+        f.write('Test  dates: {} to {}\n\n'.format(df_test[dt_dset].min(), df_test[dt_dset].max()))
+        start=len(df_train) if df_val is None else len(df_train) + len(df_val)
+        stop =len(df_train)+len(df_test) if df_val is None else len(df_train) + len(df_val) +len(df_test)
+        for i in range(start,stop):
+            f.write('{} {}\n'.format(df_test[dt_dset][i], df_test[rcpower_dset][i]))
+
+    datePredict = df_test[dt_dset].values[0]
+    actvalPredict = df_test[rcpower_dset].values[0]
+
+    return df_train, df_val, df_test, datePredict, actvalPredict
+
+
 def set_train_test_sequence(df, dt_dset,rcpower_dset, f = None ):
+
+
     test_cutoff_date = df[dt_dset].max() - timedelta(hours=1)      # The last 6 timesteps are test data
     val_cutoff_date = test_cutoff_date - timedelta(days=1)         #  The 24 previous timestaps are validation data
 
@@ -100,7 +262,7 @@ def set_train_test_sequence(df, dt_dset,rcpower_dset, f = None ):
     datePredict = df_test[dt_dset].values[0]
     actvalPredict = df_test[rcpower_dset].values[0]
 
-    return df_train, df_val, df_test, datePredict,actvalPredict
+    return df_train, df_val, df_test, datePredict, actvalPredict
 
 
 def dsets_logging(dt_dset, rcpower_dset, df_train,df_val,df_test = None, f = None ):
@@ -133,6 +295,130 @@ def dsets_logging(dt_dset, rcpower_dset, df_train,df_val,df_test = None, f = Non
         f.write('{} {}\n'.format(df_test[dt_dset][i], df_test[rcpower_dset][i]))
 
     return
+
+
+def vector_logging(seq, print_weigth, f=None):
+    if f is None:
+        return
+    k=0
+    line = 0
+    f.write("{}: ".format(line))
+    for i in range(len(seq)):
+        f.write(" {}".format(seq[i]))
+        k = k + 1
+        k = k % print_weigth
+        if k == 0:
+            line=line+1
+            f.write("\n{}: ".format(line))
+
+    return
+
+def supervised_learning_data_logging(X,y, print_weight, f=None):
+    """
+
+    :param X:
+    :param y:
+    :param print_weight:
+    :param f:
+    :return:
+    """
+
+    if (f is None):
+        return
+
+    for i in range(X.shape[0]):
+        k=0
+        line=0
+        f.write("\nRow {}: ".format(i))
+        for j in range(X.shape[1]):
+            f.write(" {}".format(X[i][j]))
+            k=k+1
+            k=k%print_weight
+            if k == 0 or k == X.shape[1]:
+
+                if line == 0:
+                    f.write(" |  {} \n      ".format(y[i]))
+                    line=1
+                else:
+                    f.write("\n      ")
+    return
+
+# This function creates MinMaxScaler object over train sequence and scales the train sequence.
+def get_scaler4train(df_train,dt_dset,rcpower_dset, f=None):
+    """
+
+    :param df_train: - DataFrame object for train sequence
+    :param f:  - log file handler
+    :return: scaler -MinMaxScaler object
+             rcpower_scaled scalled array of the time series array
+             rcpower - natural time series array
+    """
+    rcpower = df_train[rcpower_dset].values
+
+    # Scaled to work with Neural networks.
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    rcpower_scaled = scaler.fit_transform(rcpower.reshape(-1, 1)).reshape(-1, )
+
+    # scaled train data
+    if f is None:
+        pass
+    else:
+        f.write("\nScaled Train data\n")
+
+        for i in range(len(rcpower_scaled)):
+            f.write('{} \n'.format(rcpower_scaled[i]))
+
+
+    return scaler, rcpower_scaled,rcpower
+
+def scale_sequence(scaler,df_val_or_test, dt_dset, rcpower_dset, f=None):
+    """
+
+    :param scaler:  - scaler object created by get_scaler4train
+    :param df_val_or_test:  - dataFrame val or test sequences
+    :param dt_dset:  - name of 'Date time' in DataFrame object
+    :param rcpower_dset: - name of time series characteristic in DataFrame
+    :param f: - log file handler
+    :return: rcpower_val_or_test_scaled -scalled time series
+             rcpower_val_or_test - natural time series
+    """
+    pass
+    rcpower_val_or_test = df_val_or_test[rcpower_dset].values
+    rcpower_val_or_test_scaled = scaler.transform(rcpower_val_or_test.reshape(-1, 1)).reshape(-1, )
+
+    if f is None:
+        pass
+    else:
+
+        f.write("\nScaled  data\n")
+
+        for i in range(len(rcpower_val_or_test_scaled)):
+            f.write('{} \n'.format(rcpower_val_or_test_scaled[i]))
+
+    return rcpower_val_or_test_scaled, rcpower_val_or_test
+
+
+""" This function transforms the entire time series to the Supervised Learning Data
+    i.e., each subsequence of time series x[t-k], x[t-k+1],..,x[t-1],x[t] transforms to the row of matrix X(samples,k)
+    [x[t-k] x[t-k+1] .... x[t-2] x[t-1]] and element x[t] of vector y(samples)
+"""
+def TimeSeries2SupervisedLearningData(raw_seq, n_steps, f = None):
+    """
+
+    :param raw_seq:
+    :param n_steps:
+    :param f:
+    :return:
+    """
+
+    vector_logging(raw_seq, 8, f)
+
+
+    X,y = split_sequence(raw_seq, n_steps)
+
+    supervised_learning_data_logging(X, y, 8, f)
+
+    return X,y
 
 
 ###################################################################################################################
@@ -237,3 +523,83 @@ class TimeSeriesLoader:
         np.random.shuffle(self.files_indices)
 
 ######################################################################################################################
+
+def setLSTMModel( units, type_LSTM , possible_types,  n_steps, n_features , f=None):
+    """
+
+    :param units:
+    :param type_LSTM:
+    :param possible_types:
+    :param n_steps:
+    :param n_features:
+    :param f:
+    :return:
+    """
+
+    # define model
+    model = Sequential()
+    code_LSTM=possible_types.get(type_LSTM)
+
+    if code_LSTM == 0: # Vanilla LSTM
+        model.add(LSTM(units, activation='relu', input_shape=(n_steps, n_features)))
+        pass
+    elif code_LSTM == 1: # stacked LSTM
+        model.add(LSTM(units, activation='relu', return_sequences=True, input_shape=(n_steps, n_features)))
+        model.add(LSTM(units, activation='relu'))
+    elif code_LSTM == 2: # Bidirectional LSTM
+        model.add(Bidirectional(LSTM(units, activation='relu'), input_shape=(n_steps, n_features)))
+    elif code_LSTM == 3: # CNN LSTM
+        model.add(TimeDistributed(Conv1D(filters=64, kernel_size=1, activation='relu'),
+                                  input_shape=(None, n_steps/2, n_features)))
+        model.add(TimeDistributed(MaxPooling1D(pool_size=2)))
+        model.add(TimeDistributed(Flatten()))
+        model.add(LSTM(units, activation='relu'))
+    else:
+        model.add(LSTM(units, activation='relu', input_shape=(n_steps, n_features)))
+
+    model.add(Dense(1))
+    model.compile(optimizer='adam', loss='mse', metrics=[MeanSquaredError()])
+    model.summary()
+    model.summary(print_fn=lambda x: f.write(x + '\n'))
+
+    return model
+
+
+def fitLSTMModel(model,type_LSTM, possible_types, X, y, X_val, y_val, n_steps, n_features, n_epochs, f=None):
+    """
+
+    :param type_LSTM:
+    :param possible_types:
+    :param X:
+    :param y:
+    :param X_val:
+    :param y_val:
+    :param n_steps:
+    :param n_features:
+    :param n_epochs:
+    :param f:
+    :return:
+    """
+    n_seq = 2  # for CNN_LSTM
+    code_LSTM = possible_types.get(type_LSTM)
+    if code_LSTM == 3:  # need to reshape for CNN
+        n_steps = n_steps / n_seq
+        X = X.reshape((X.shape[0], n_seq, n_steps, n_features))
+        X_val = X_val.reshape((X_val.shape[0], n_seq, n_steps, n_features))
+
+    history = model.fit(X, y, epochs=n_epochs, verbose=1, validation_data=(X_val, y_val), )
+    print(history.history)
+    if f is None:
+        pass
+    else:
+        f.write("\n\nTraining history {}".format(history.history))
+
+    chart_MAE(history, n_steps)
+    chart_MSE(history, n_steps)
+
+    return history
+
+
+
+if __name__ == "__main__":
+    pass
