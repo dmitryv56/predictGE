@@ -18,11 +18,6 @@ from tensorflow.keras.layers import Bidirectional,TimeDistributed,Flatten
 from tensorflow.keras.layers import Conv1D
 from tensorflow.keras.layers import MaxPooling1D
 
-
-
-
-
-from datetime import timedelta
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 
@@ -40,10 +35,10 @@ from pathlib import Path
 
 from predict.api import create_ts_files, TimeSeriesLoader,dsets_logging,split_sequence,vector_logging,\
 supervised_learning_data_logging,TimeSeries2SupervisedLearningData, readDataSet, set_train_val_test_sequence,\
-get_scaler4train,scale_sequence,chart_MAE,chart_MSE,setLSTMModel,fitLSTMModel
+get_scaler4train,scale_sequence,chart_MAE,chart_MSE,setLSTMModel,fitLSTMModel,chart_2series,model_saving
 
-from predict.cfg import RCPOWER_DSET, DT_DSET,CSV_PATH, DISCRET, LOG_FILE_NAME, TEST_CUT_OFF, VAL_CUT_OFF,EPOCHS,\
-LSTM_POSSIBLE_TYPES, LSTM_TYPE, N_STEPS, N_FEATURES, UNITS
+from predict.cfg import MAGIC_SEED,RCPOWER_DSET, DT_DSET,CSV_PATH, DISCRET, LOG_FILE_NAME, TEST_CUT_OFF, VAL_CUT_OFF,EPOCHS,\
+LSTM_POSSIBLE_TYPES, LSTM_TYPE, N_STEPS, N_FEATURES, UNITS, STOP_ON_CHART_SHOW
 
 
 
@@ -54,8 +49,16 @@ def main():
     model_properties   = (LSTM_POSSIBLE_TYPES, LSTM_TYPE,UNITS)
     training_properties= (N_STEPS, N_FEATURES, EPOCHS)
 
-    model, history = driveLSTM(dataset_properties, cut_off_properties,model_properties,training_properties, f)
+    if LSTM_POSSIBLE_TYPES.get(LSTM_TYPE) is not None :
+        (codID, folder_path_saved_model) = LSTM_POSSIBLE_TYPES.get(LSTM_TYPE)
+    else:
+        print("This LSTM model is not supported")
+        return -1
 
+    model, history, scaler  = driveLSTM(dataset_properties, cut_off_properties,model_properties,training_properties, f)
+
+
+    model_saving(folder_path_saved_model, model, scaler, f)
     return 0
 
 def driveLSTM( dataset_properties, cut_off_properties,model_properties,training_properties, f=None ):
@@ -112,12 +115,34 @@ def driveLSTM( dataset_properties, cut_off_properties,model_properties,training_
     history = fitLSTMModel(model,lstm_type, lstm_possible_types, X, y, X_val, y_val, n_steps, n_features, n_epochs, f)
 
 # predict -T.B.D
+    if len(rcpower_test_scaled)>n_steps:
+        rcpower_test_scaled_4predict=np.copy(rcpower_test_scaled)
+    else:
+        rcpower_test_scaled_4predict = np.concatenate((rcpower_val_scaled[(len(rcpower_val_scaled) -
+                                                                        n_steps ):], rcpower_test_scaled))
+    X_test, y_test = TimeSeries2SupervisedLearningData( rcpower_test_scaled_4predict, n_steps, f)
+    X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], n_features))
+    y_scaled_pred =model.predict(X_test)
+    # model returns not numpy vector. Need to reshape it
 
-    return model, history
+    y_pred =scaler.inverse_transform((y_scaled_pred))
+
+    y_scaled_pred.reshape(y_scaled_pred.shape[0])
+    y_pred.reshape(y_pred.shape[0])
+    chart_2series(df, "Test sequence scaled prediction", rcpower_dset, dt_dset, y_scaled_pred, y_test, len(y_scaled_pred), False)
+
+    chart_2series(df, "Test sequence prediction", rcpower_dset, dt_dset, y_pred, rcpower_test,
+                  len(y_pred), False)
+
+
+    return model, history, scaler
 
 if __name__ == "__main__":
+    tf.random.set_seed(MAGIC_SEED)
 
-    file_for_logging=LOG_FILE_NAME + "_"+Path(__file__).stem + ".log"
-    f=open( file_for_logging,'w')
-    main()
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    file_for_logging = dir_path + "./train/" + LOG_FILE_NAME + "_" + Path(__file__).stem + ".log"
+    os.makedirs(os.path.dirname(file_for_logging), exist_ok=True)
+    with open(file_for_logging, "w") as f:
+         main()
     f.close()

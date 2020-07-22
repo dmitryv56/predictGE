@@ -20,6 +20,8 @@ import time
 import os
 import shutil
 
+from predict.api import chart_MAE,chart_MSE, chart_2series
+
 
 #split a untivariate sequence into supervised data
 
@@ -41,28 +43,10 @@ def myprint(s):
     with open('modelsummary.txt','w+') as f:
         print(s, file=f)
 
-def myprint_MAE(history, n_steps):
-    # Plot history: MAE
-    plt.plot(history.history['loss'], label='MAE (training data)')
-    plt.plot(history.history['val_loss'], label='MAE (validation data)')
-    plt.title('Mean Absolute Error (Time Steps = {}'.format(n_steps))
-    plt.ylabel('MAE value')
-    plt.xlabel('No. epoch')
-    plt.legend(loc="upper left")
-    plt.show(block=False)
-    plt.savefig("MAE_{}.png".format(n_steps))
 
 
-def myprint_MSE(history, n_steps):
-    # Plot history: MSE
-    plt.plot(history.history['mean_squared_error'], label='MSE (training data)')
-    plt.plot(history.history['val_mean_squared_error'], label='MSE (validation data)')
-    plt.title('MSE (Time Steps = {}'.format(n_steps))
-    plt.ylabel('MSE value')
-    plt.xlabel('No. epoch')
-    plt.legend(loc="upper left")
-    plt.show(block=False)
-    plt.savefig("MSE_{}.png".format(n_steps))
+
+
 
 def read_my_dataset(csv_path):
     df = pd.read_csv(csv_path)
@@ -220,8 +204,8 @@ history = model.fit(X, y, epochs=200, verbose=2,validation_data=(X_val, y_val),)
 print(history.history)
 f.write("\n\nTraining history {}".format(history.history))
 
-myprint_MAE(history,n_steps)
-myprint_MSE(history,n_steps)
+chart_MAE(history,n_steps, False)
+chart_MSE(history,n_steps, False)
 
 #The returned "history" object holds a record of the loss values and metric values during training
 f.write("History \n{}".format(str(history.history)))

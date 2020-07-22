@@ -4,7 +4,7 @@ from tensorflow import keras
 from tensorflow.keras import layers
 from tensorflow.keras.utils import Sequence
 
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Sequential,save_model, load_model
 from tensorflow.keras.metrics import MeanSquaredError
 from tensorflow.keras.layers import LSTM
 from tensorflow.keras.layers import Dense
@@ -18,10 +18,13 @@ import os
 import math
 import numpy as np
 from datetime import timedelta
+import datetime as dt
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
+from pickle import dump, load
 import time
 import shutil
 
@@ -56,15 +59,16 @@ def myprint_MAE(history, n_steps):
     plt.show(block=False)
     plt.savefig("MAE_{}.png".format(n_steps))
 
-def chart_MAE(history, n_steps):
+def chart_MAE(history, n_steps,stop_on_chart_show=True):
     # Plot history: MAE
+    plt.close("all")
     plt.plot(history.history['loss'], label='MAE (training data)')
     plt.plot(history.history['val_loss'], label='MAE (validation data)')
     plt.title('Mean Absolute Error (Time Steps = {}'.format(n_steps))
     plt.ylabel('MAE value')
     plt.xlabel('No. epoch')
     plt.legend(loc="upper left")
-    plt.show(block=False)
+    plt.show(block=stop_on_chart_show)
     plt.savefig("MAE_{}.png".format(n_steps))
 
 
@@ -79,16 +83,55 @@ def myprint_MSE(history, n_steps):
     plt.show(block=False)
     plt.savefig("MSE_{}.png".format(n_steps))
 
-def chart_MSE(history, n_steps):
+def chart_MSE(history, n_steps,stop_on_chart_show=True):
     # Plot history: MSE
+    plt.close("all")
     plt.plot(history.history['mean_squared_error'], label='MSE (training data)')
     plt.plot(history.history['val_mean_squared_error'], label='MSE (validation data)')
     plt.title('MSE (Time Steps = {}'.format(n_steps))
     plt.ylabel('MSE value')
     plt.xlabel('No. epoch')
     plt.legend(loc="upper left")
-    plt.show(block=False)
+    plt.show(block=stop_on_chart_show)
     plt.savefig("MSE_{}.png".format(n_steps))
+
+
+def chart_2series(df, title, Y_label, dt_dset, array_pred, array_act, n_pred=6, stop_on_chart_show=True):
+    """
+
+    :param df: - pandas dataset that contains of time series
+    :param title: -title for chart
+    :param Y_label: -time series name, i.e. rcpower_dset for df
+    :param dt_dset:  - date/time, i.e.dt_dset dor df
+    :param array_pred: - predict numpy vector
+    :param array_act:  - actual values numpy vector
+    :param n_pred:     - length of array_pred and array_act
+    :param stop_on_chart_show: True if stop on the chart show and wait User' action
+    :return:
+    """
+    plt.close("all")
+    times = mdates.drange(df[dt_dset][len(df[dt_dset]) - n_pred].to_pydatetime(),
+                          df[dt_dset][len(df[dt_dset]) - 1].to_pydatetime(), timedelta(minutes=10)) #m.b import timedate as td; td.timedelta(minutes=10)
+
+    plt.plot(times, array_pred, label='Y pred')
+
+    plt.plot(times, array_act, label='Y act')
+
+    plt.title('{} (Length of series   {})'.format(title, n_pred))
+
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+    plt.gca().xaxis.set_major_locator(mdates.MinuteLocator(interval=10))
+    plt.gca().xaxis.set_label_text("Date Time")
+    plt.gca().yaxis.set_label_text(Y_label)
+
+    plt.legend()
+    plt.gcf().autofmt_xdate()
+    plt.show(block=False)
+    title.replace(" ", "_")
+    plt.savefig("{}-{}_samples.png".format(title, n_pred))
+
+    return
+
 
 # read_my_dataset obsolited.  readDataSet should be used instead
 def read_my_dataset(csv_path):
@@ -594,12 +637,73 @@ def fitLSTMModel(model,type_LSTM, possible_types, X, y, X_val, y_val, n_steps, n
     else:
         f.write("\n\nTraining history {}".format(history.history))
 
-    chart_MAE(history, n_steps)
-    chart_MSE(history, n_steps)
+    chart_MAE(history, n_steps, False)
+    chart_MSE(history, n_steps, False)
 
     return history
 
+#############################################################################################################
+# Save and load trained model
+#############################################################################################################
+def model_saving(filepath_to_saved_model, model, scaler, f = None):
+    """
 
+    :param filepath_to_saved_model: path to folder where will place  saved model (assets, variables, saved_model.pb)
+                                       and dump of scaler.pcl (sklearn.MinMaxScaler objct)
+    :param model: - compiled and fitted model will save with weights. The saved model contains assets, saved_model.pb files
+                    and subfolder variables for weights
+    :param scaler: MiMaxScaler object will save together with model
+    :param f: -log file handler
+    :return:
+    """
+    save_model(model,filepath_to_saved_model)
+    with open(filepath_to_saved_model + "\\scaler.pkl", 'wb') as fp:
+        dump(scaler,fp)
+
+    if f is not None:
+        f.write("Model saved in {} ".format(filepath_to_saved_model))
+    return
+
+def model_predict(filepath_to_saved_model,df=None, dt_dset=None, rcpower_dset=None, n_time_steps=None, discretization =10, f = None):
+    """
+
+    :param filepath_to_saved_model:  - path to folder where placed  saved model (assets, variables, saved_model.pb)
+                                       and dumped scaler.pcl
+    :param df: DataFrame contents the time series , i.e. loaded from csv -file
+    :param dt_dset: - Date/ time column name
+    :param rcpower_dset: - interested time series column name
+    :param n_time_steps: - number of time steps  fo predict
+    :param f: - log file handler
+    :return:
+    """
+
+
+# load model
+    model = load_model( filepath_to_saved_model, compile = True )
+    model.summary()
+    model.summary(print_fn=lambda x: f.write(x + '\n'))
+# load MinMaxScaler that was saved with model
+    with open(filepath_to_saved_model +"\\scaler.pkl",'rb') as fp:
+        scaler = load(fp)
+
+# prepare time series for predict
+
+    xx = np.copy(df[rcpower_dset][len(df[rcpower_dset]) - n_time_steps:])
+    xx_scaled = scaler.transform(xx.reshape(-1, 1)).reshape(-1, )
+    vector_logging(xx,8,f)
+    vector_logging(xx_scaled, 8, f)
+
+    xx_scaled = xx_scaled.reshape((1, xx_scaled.shape[0], 1))
+
+    y_scaled = model.predict(xx_scaled)
+
+    y_pred = scaler.inverse_transform((y_scaled))
+    df[dt_dset].max() + dt.timedelta(minutes=discretization)
+    if f is not None:
+        f.write("\n\n{} : Scaled predict {} Actual predict {}\n".format(
+            df[dt_dset].max() + dt.timedelta(minutes=int(discretization)),y_scaled, y_pred))
+
+    return
 
 if __name__ == "__main__":
     pass

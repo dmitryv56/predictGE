@@ -9,7 +9,6 @@ from tensorflow.keras.metrics import MeanSquaredError
 
 
 from tensorflow.keras.layers import Conv1D ,MaxPooling1D
-from api import split_sequence, myprint_MAE, myprint_MSE, read_my_dataset, set_train_test_sequence
 from tensorflow.keras.utils import plot_model
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
@@ -24,6 +23,8 @@ import time
 
 import os
 import shutil
+
+from predict.api import split_sequence, chart_MAE, chart_MSE, read_my_dataset, set_train_test_sequence
 
 
 n_steps=32
@@ -82,8 +83,8 @@ history = model.fit(X, y, epochs=1000, verbose=0,validation_data=(X_val, y_val),
 print(history.history)
 f.write("\n\nTraining history {}".format(history.history))
 
-myprint_MAE(history,n_steps)
-myprint_MSE(history,n_steps)
+chart_MAE(history,n_steps, False)
+chart_MSE(history,n_steps, False)
 
 # demonstrate prediction
 # x_input = array([70, 80, 90])
