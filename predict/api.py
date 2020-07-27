@@ -44,22 +44,11 @@ def split_sequence(sequence, n_steps):
         y.append(seq_y)
     return np.array(X),np.array(y)
 
-def myprint(s):
-    with open('modelsummary.txt','w+') as f:
-        print(s, file=f)
 
-def myprint_MAE(history, n_steps):
-    # Plot history: MAE
-    plt.plot(history.history['loss'], label='MAE (training data)')
-    plt.plot(history.history['val_loss'], label='MAE (validation data)')
-    plt.title('Mean Absolute Error (Time Steps = {}'.format(n_steps))
-    plt.ylabel('MAE value')
-    plt.xlabel('No. epoch')
-    plt.legend(loc="upper left")
-    plt.show(block=False)
-    plt.savefig("MAE_{}.png".format(n_steps))
 
-def chart_MAE(history, n_steps,stop_on_chart_show=True):
+
+
+def chart_MAE(history, n_steps,logfolder, stop_on_chart_show=True):
     # Plot history: MAE
     plt.close("all")
     plt.plot(history.history['loss'], label='MAE (training data)')
@@ -69,21 +58,13 @@ def chart_MAE(history, n_steps,stop_on_chart_show=True):
     plt.xlabel('No. epoch')
     plt.legend(loc="upper left")
     plt.show(block=stop_on_chart_show)
-    plt.savefig("MAE_{}.png".format(n_steps))
+    if logfolder is not None:
+        plt.savefig("{}/MAE_{}.png".format(logfolder,n_steps))
 
 
-def myprint_MSE(history, n_steps):
-    # Plot history: MSE
-    plt.plot(history.history['mean_squared_error'], label='MSE (training data)')
-    plt.plot(history.history['val_mean_squared_error'], label='MSE (validation data)')
-    plt.title('MSE (Time Steps = {}'.format(n_steps))
-    plt.ylabel('MSE value')
-    plt.xlabel('No. epoch')
-    plt.legend(loc="upper left")
-    plt.show(block=False)
-    plt.savefig("MSE_{}.png".format(n_steps))
 
-def chart_MSE(history, n_steps,stop_on_chart_show=True):
+
+def chart_MSE(history, n_steps,logfolder, stop_on_chart_show=True):
     # Plot history: MSE
     plt.close("all")
     plt.plot(history.history['mean_squared_error'], label='MSE (training data)')
@@ -93,10 +74,11 @@ def chart_MSE(history, n_steps,stop_on_chart_show=True):
     plt.xlabel('No. epoch')
     plt.legend(loc="upper left")
     plt.show(block=stop_on_chart_show)
-    plt.savefig("MSE_{}.png".format(n_steps))
+    if logfolder is not None:
+        plt.savefig("{}/MSE_{}.png".format(logfolder,n_steps))
 
 
-def chart_2series(df, title, Y_label, dt_dset, array_pred, array_act, n_pred=6, stop_on_chart_show=True):
+def chart_2series(df, title, Y_label, dt_dset, array_pred, array_act, n_pred, logfolder, stop_on_chart_show=True):
     """
 
     :param df: - pandas dataset that contains of time series
@@ -128,7 +110,8 @@ def chart_2series(df, title, Y_label, dt_dset, array_pred, array_act, n_pred=6, 
     plt.gcf().autofmt_xdate()
     plt.show(block=False)
     title.replace(" ", "_")
-    plt.savefig("{}-{}_samples.png".format(title, n_pred))
+    if logfolder is not None:
+        plt.savefig("{}/{}-{}_samples.png".format(logfolder,title, n_pred))
 
     return
 
@@ -386,7 +369,10 @@ def supervised_learning_data_logging(X,y, print_weight, f=None):
                     f.write("\n      ")
     return
 
-# This function creates MinMaxScaler object over train sequence and scales the train sequence.
+
+"""
+This function creates MinMaxScaler object over train sequence and scales the train sequence.
+"""
 def get_scaler4train(df_train,dt_dset,rcpower_dset, f=None):
     """
 
@@ -414,6 +400,10 @@ def get_scaler4train(df_train,dt_dset,rcpower_dset, f=None):
 
     return scaler, rcpower_scaled,rcpower
 
+"""
+This function uses the before created MinMaxScale oblect to scaling the validation or test
+sequence
+"""
 def scale_sequence(scaler,df_val_or_test, dt_dset, rcpower_dset, f=None):
     """
 
@@ -566,6 +556,8 @@ class TimeSeriesLoader:
         np.random.shuffle(self.files_indices)
 
 ######################################################################################################################
+#   LSTM model
+######################################################################################################################
 
 def setLSTMModel( units, type_LSTM , possible_types,  n_steps, n_features , f=None):
     """
@@ -608,7 +600,7 @@ def setLSTMModel( units, type_LSTM , possible_types,  n_steps, n_features , f=No
     return model
 
 
-def fitLSTMModel(model,type_LSTM, possible_types, X, y, X_val, y_val, n_steps, n_features, n_epochs, f=None):
+def fitLSTMModel(model,type_LSTM, possible_types, X, y, X_val, y_val, n_steps, n_features, n_epochs, logfolder, f=None):
     """
 
     :param type_LSTM:
@@ -637,8 +629,70 @@ def fitLSTMModel(model,type_LSTM, possible_types, X, y, X_val, y_val, n_steps, n
     else:
         f.write("\n\nTraining history {}".format(history.history))
 
-    chart_MAE(history, n_steps, False)
-    chart_MSE(history, n_steps, False)
+    chart_MAE(history, n_steps, logfolder, False)
+    chart_MSE(history, n_steps, logfolder, False)
+
+    return history
+
+#############################################################################################################
+#      CNN - model
+#############################################################################################################
+"""
+CNN model for time seris forcasting definition/
+The inputs of model are (N_steps, n_features) two-dimensional tensors (mtices). The one feature
+reduces this matrix to row (vector)
+"""
+def setCNNModel( n_steps, n_features = 1, filters=64, kernel_size=2,pool_size=2,   f=None):
+    """
+
+    :param n_steps: - number of time steps
+    :param n_features:  -number features, 1 for time series
+    :param filters:-For convolution level
+    :param kernel_size:
+    :param pool_size:
+    :param f:
+    :return:
+    """
+    # define model
+    model = Sequential()
+    model.add(Conv1D(filters=64, kernel_size=2, activation='relu', input_shape=(n_steps, n_features)))
+    model.add(MaxPooling1D(pool_size=2))
+    model.add(Flatten())
+    model.add(Dense(50, activation='relu'))
+    model.add(Dense(1))
+    model.compile(optimizer='adam', loss='mse',metrics=[MeanSquaredError()])
+    model.summary()
+    model.summary(print_fn=lambda x: f.write(x + '\n'))
+
+    return model
+
+def setMLPModel( n_steps, n_features = 1,hidden_neyron_number=100, dropout_factor=0.2,  f=None):
+    # define model
+    model = Sequential()
+    #model.add(tf.keras.Input(shape=( n_steps,1)))
+    model.add(Dense(hidden_neyron_number, activation='relu', input_dim=n_steps))
+
+    model.add(layers.Dropout(dropout_factor))
+    model.add(Dense(32))
+    model.add(layers.Dropout(dropout_factor))
+    model.add(Dense(1))
+
+    model.compile(optimizer='adam', loss='mse', metrics=[tf.keras.metrics.MeanSquaredError()])
+    model.summary()
+    model.summary(print_fn=lambda x: f.write(x + '\n'))
+
+    return model
+
+
+def fitModel(model, X, y, X_val, y_val, n_steps, n_features, n_epochs, logfolder, f=None):
+    # fit model
+    history = model.fit(X, y, epochs=n_epochs, verbose=0,validation_data=(X_val, y_val),)
+    print(history.history)
+    if f is not None:
+        f.write("\n\nTraining history {}".format(history.history))
+
+    chart_MAE(history,n_steps, logfolder, False)
+    chart_MSE(history,n_steps, logfolder, False)
 
     return history
 

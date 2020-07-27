@@ -37,7 +37,7 @@ from predict.api import create_ts_files, TimeSeriesLoader,dsets_logging,split_se
 supervised_learning_data_logging,TimeSeries2SupervisedLearningData, readDataSet, set_train_val_test_sequence,\
 get_scaler4train,scale_sequence,chart_MAE,chart_MSE,setLSTMModel,fitLSTMModel,chart_2series, model_predict
 
-from predict.cfg import MAGIC_SEED,RCPOWER_DSET, DT_DSET,CSV_PATH, DISCRET, LOG_FILE_NAME, TEST_CUT_OFF, VAL_CUT_OFF,EPOCHS,\
+from predict.cfg import MAGIC_SEED,PREDICT_PATH, RCPOWER_DSET, DT_DSET,CSV_PATH, DISCRET, LOG_FILE_NAME, TEST_CUT_OFF, VAL_CUT_OFF,EPOCHS,\
 LSTM_POSSIBLE_TYPES, LSTM_TYPE, N_STEPS, N_FEATURES, UNITS, STOP_ON_CHART_SHOW
 
 
@@ -66,7 +66,7 @@ if __name__ == "__main__":
     tf.random.set_seed(MAGIC_SEED)
 
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    file_for_logging = dir_path + "./predict/" + LOG_FILE_NAME + "_" + Path(__file__).stem + ".log"
+    file_for_logging = dir_path + "/" + PREDICT_PATH + "/" + LOG_FILE_NAME + "_" + Path(__file__).stem + ".log"
     os.makedirs(os.path.dirname(file_for_logging), exist_ok=True)
     with open(file_for_logging, "w") as f:
         main()

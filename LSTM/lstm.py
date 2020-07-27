@@ -37,8 +37,8 @@ from predict.api import create_ts_files, TimeSeriesLoader,dsets_logging,split_se
 supervised_learning_data_logging,TimeSeries2SupervisedLearningData, readDataSet, set_train_val_test_sequence,\
 get_scaler4train,scale_sequence,chart_MAE,chart_MSE,setLSTMModel,fitLSTMModel,chart_2series,model_saving
 
-from predict.cfg import MAGIC_SEED,RCPOWER_DSET, DT_DSET,CSV_PATH, DISCRET, LOG_FILE_NAME, TEST_CUT_OFF, VAL_CUT_OFF,EPOCHS,\
-LSTM_POSSIBLE_TYPES, LSTM_TYPE, N_STEPS, N_FEATURES, UNITS, STOP_ON_CHART_SHOW
+from predict.cfg import MAGIC_SEED, TRAIN_PATH, RCPOWER_DSET, DT_DSET, CSV_PATH, DISCRET, LOG_FILE_NAME, TEST_CUT_OFF, \
+    VAL_CUT_OFF,EPOCHS, LSTM_POSSIBLE_TYPES, LSTM_TYPE, N_STEPS, N_FEATURES, UNITS, STOP_ON_CHART_SHOW
 
 
 
@@ -49,19 +49,22 @@ def main():
     model_properties   = (LSTM_POSSIBLE_TYPES, LSTM_TYPE,UNITS)
     training_properties= (N_STEPS, N_FEATURES, EPOCHS)
 
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    logfolder = dir_path + "/" + TRAIN_PATH
+
     if LSTM_POSSIBLE_TYPES.get(LSTM_TYPE) is not None :
         (codID, folder_path_saved_model) = LSTM_POSSIBLE_TYPES.get(LSTM_TYPE)
     else:
         print("This LSTM model is not supported")
         return -1
 
-    model, history, scaler  = driveLSTM(dataset_properties, cut_off_properties,model_properties,training_properties, f)
+    model, history, scaler  = driveLSTM(dataset_properties, cut_off_properties,model_properties,training_properties, logfolder, f)
 
 
     model_saving(folder_path_saved_model, model, scaler, f)
     return 0
 
-def driveLSTM( dataset_properties, cut_off_properties,model_properties,training_properties, f=None ):
+def driveLSTM( dataset_properties, cut_off_properties,model_properties,training_properties, logfolder, f=None ):
 
     pass
     csv_path, dt_dset, rcpower_dset, discret = dataset_properties
@@ -112,7 +115,7 @@ def driveLSTM( dataset_properties, cut_off_properties,model_properties,training_
     model = setLSTMModel(units, lstm_type, lstm_possible_types, n_steps, n_features, f)
 
 # fit model
-    history = fitLSTMModel(model,lstm_type, lstm_possible_types, X, y, X_val, y_val, n_steps, n_features, n_epochs, f)
+    history = fitLSTMModel(model,lstm_type, lstm_possible_types, X, y, X_val, y_val, n_steps, n_features, n_epochs, logfolder, f)
 
 # predict -T.B.D
     if len(rcpower_test_scaled)>n_steps:
@@ -129,10 +132,11 @@ def driveLSTM( dataset_properties, cut_off_properties,model_properties,training_
 
     y_scaled_pred.reshape(y_scaled_pred.shape[0])
     y_pred.reshape(y_pred.shape[0])
-    chart_2series(df, "Test sequence scaled prediction", rcpower_dset, dt_dset, y_scaled_pred, y_test, len(y_scaled_pred), False)
+    chart_2series(df, "Test sequence scaled prediction", rcpower_dset, dt_dset, y_scaled_pred, y_test,
+                  len(y_scaled_pred), logfolder, False)
 
     chart_2series(df, "Test sequence prediction", rcpower_dset, dt_dset, y_pred, rcpower_test,
-                  len(y_pred), False)
+                  len(y_pred), logfolder, False)
 
 
     return model, history, scaler
@@ -141,7 +145,7 @@ if __name__ == "__main__":
     tf.random.set_seed(MAGIC_SEED)
 
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    file_for_logging = dir_path + "./train/" + LOG_FILE_NAME + "_" + Path(__file__).stem + ".log"
+    file_for_logging = dir_path + "/" + TRAIN_PATH + "/" + LOG_FILE_NAME + "_" + Path(__file__).stem + ".log"
     os.makedirs(os.path.dirname(file_for_logging), exist_ok=True)
     with open(file_for_logging, "w") as f:
          main()

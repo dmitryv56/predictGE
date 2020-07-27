@@ -3,6 +3,9 @@
 #
 MAGIC_SEED = 1956
 
+#PATH
+TRAIN_PATH   = 'train'
+PREDICT_PATH = 'predict'
 
 # Dataset properties
 CSV_PATH="C:\\Users\\dmitr_000\\.keras\\datasets\\Imbalance_data.csv"
@@ -33,6 +36,19 @@ LSTM_POSSIBLE_TYPES={'LSTM':(0,"Vanilla_LSTM"), 'stacked LSTM':(1,"Stacked_LSTM"
 LSTM_TYPE='LSTM'
 
 UNITS =32
+
+#CNN models
+
+FILTERS = 64
+KERNEL_SIZE  = 2
+POOL_SIZE = 2
+FOLDER_PATH_SAVED_CNN_MODEL="ConvNN"
+#MLP model
+HIDDEN_NEYRONS = 16
+DROPOUT = 0.2
+
+FOLDER_PATH_SAVED_MLP_MODEL="MLP"
+
 
 # Chartin. Matplotlib.pyplot is used for charting
 STOP_ON_CHART_SHOW=False

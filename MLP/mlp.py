@@ -1,226 +1,141 @@
-#! /usr/bin/python3
-import os
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers,Sequential
-from tensorflow.keras.layers import Dense
-from datetime import timedelta
+#!/usr/bin/python3
+# univariate cnn example
+
+
+from numpy import array
+from tensorflow import random
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Flatten
+from tensorflow.keras.metrics import MeanSquaredError
+
+
+from tensorflow.keras.layers import Conv1D ,MaxPooling1D
 from tensorflow.keras.utils import plot_model
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
-
+from datetime import timedelta
 import numpy as np
 import pandas as pd
 
 import matplotlib.pyplot as plt
-import pydot
-import graphviz
 import time
 
 import os
 import shutil
-
-from predict.api import chart_MAE,chart_MSE, chart_2series
-
-
-#split a untivariate sequence into supervised data
-
-def split_sequence(sequence, n_steps):
-    X,y = list(), list()
-    for i in range(len(sequence)):
-        #find the end of pattern
-        end_ix = i+ n_steps
-        # check if we are beyond the sequence
-        if end_ix > len(sequence) -1:
-            break
-        # gather input and output parts
-        seq_x, seq_y=sequence[i:end_ix], sequence[end_ix]
-        X.append(seq_x)
-        y.append(seq_y)
-    return np.array(X),np.array(y)
-
-def myprint(s):
-    with open('modelsummary.txt','w+') as f:
-        print(s, file=f)
+from pathlib import Path
 
 
 
+from predict.api import create_ts_files, TimeSeriesLoader,dsets_logging,split_sequence,vector_logging,\
+supervised_learning_data_logging,TimeSeries2SupervisedLearningData, readDataSet, set_train_val_test_sequence,\
+get_scaler4train,scale_sequence,chart_MAE,chart_MSE,setLSTMModel,fitLSTMModel,chart_2series,model_saving,\
+fitModel, setMLPModel
+
+from predict.cfg import MAGIC_SEED,RCPOWER_DSET, DT_DSET,CSV_PATH, DISCRET, LOG_FILE_NAME, TEST_CUT_OFF, VAL_CUT_OFF,EPOCHS,\
+ N_STEPS, N_FEATURES,  STOP_ON_CHART_SHOW, HIDDEN_NEYRONS,DROPOUT,FOLDER_PATH_SAVED_MLP_MODEL,TRAIN_PATH
 
 
 
-def read_my_dataset(csv_path):
-    df = pd.read_csv(csv_path)
-    df.head()
-    rcpower_dset = "Imbalance"
-    dt_dset = "Date Time"
+def driveMLP( dataset_properties, cut_off_properties,model_properties,training_properties, logfolder,f=None ):
 
-    df[rcpower_dset] = pd.to_numeric(df[rcpower_dset], errors='coerce')
-    df = df.dropna(subset=[rcpower_dset])
+    pass
+    csv_path, dt_dset, rcpower_dset, discret = dataset_properties
+    test_cut_off,val_cut_off = cut_off_properties
+    hidden_neyron_number, dropout_factor=  model_properties
+    n_steps, n_features, n_epochs = training_properties
 
-    df[dt_dset] = pd.to_datetime(df[dt_dset], dayfirst=True)
+    if f is not None:
+        f.write("====================================================================================================")
+        f.write("\nMultiLayer Perceptron\n")
+        f.write("\nDataset Properties\ncsv_path: {}\ndt_dset: {}\nrcpower_dset: {}\ndiscret: {}\n".format(csv_path,
+                                                                dt_dset,rcpower_dset,discret))
+        f.write("\n\nDataset Cut off Properties\ncut of for test sequence: {} minutes\ncut off for validation sequence: {} minutes\n".format(
+                                                                test_cut_off,val_cut_off))
+        f.write("\n\nModel Properties\nhidden neyron number: {}\ndropout factor: {}\n".format(
+                                                                hidden_neyron_number, dropout_factor ))
+        f.write("\n\nTraining Properties\n time steps: {},\nfeatures: {}\n,epochs: {}\n".format(n_steps, n_features,
+                                                                                                n_epochs))
+        f.write("====================================================================================================\n\n")
 
-    df = df.loc[:, [dt_dset, rcpower_dset]]
-    df.sort_values(dt_dset, inplace=True, ascending=True)
-    df = df.reset_index(drop=True)
+# read dataset
+    df = readDataSet(CSV_PATH, dt_dset, rcpower_dset, discret, f)
 
-    print('Number of rows and columns after removing missing values:', df.shape)
-    print('The time series starts from: ', df[dt_dset].min())
-    print('The time series ends on: ', df[dt_dset].max())
+# set training, validation and test sequence
+    df_train, df_val, df_test, datePredict, actvalPredict = set_train_val_test_sequence(df, dt_dset, rcpower_dset,
+                                                                                        test_cut_off, val_cut_off, f)
+    print(len(df_train), len(df_val), len(df_test), datePredict, actvalPredict)
+    if f is not None:
+        f.write("Training sequence length:   {}\n".format(len(df_train)))
+        f.write("Validating sequence length: {}\n".format(len(df_val)))
+        f.write("Testing sequence length:    {}\n".format(len(df_val)))
 
-    df.info()
-    df.head(10)
+        f.write("Date time for predict: {} Actual value: {}\n".format(datePredict, actvalPredict))
 
-    return df,dt_dset,rcpower_dset
+# scaling time series
+    scaler, rcpower_scaled, rcpower = get_scaler4train(df_train, dt_dset, rcpower_dset, f)
+    rcpower_val_scaled, rcpower_val = scale_sequence(scaler, df_val, dt_dset, rcpower_dset, f)
+    rcpower_test_scaled, rcpower_test = scale_sequence(scaler, df_test, dt_dset, rcpower_dset, f)
 
-def set_train_test_sequence(df, dt_dset,rcpower_dset, f = None ):
-    test_cutoff_date = df[dt_dset].max() - timedelta(hours=1)      # The last 6 timesteps are test data
-    val_cutoff_date = test_cutoff_date - timedelta(days=1)         #  The 24 previous timestaps are validation data
+# time series is transformed to supevised learning data
+    X, y = TimeSeries2SupervisedLearningData(rcpower_scaled, n_steps, f)
+    X_val, y_val = TimeSeries2SupervisedLearningData(rcpower_val_scaled, n_steps, f)
 
-    df_test = df[df[dt_dset] > test_cutoff_date]
-
-    df_train = df[df[dt_dset] <= test_cutoff_date]
-    df_val = None
-#check out the datasets
-
-    print('Train dates: {} to {}'.format(df_train[dt_dset].min(), df_train[dt_dset].max()))
-    f.write("\nTrain dataset\n")
-    f.write('Train dates: {} to {}\n\n'.format(df_train[dt_dset].min(), df_train[dt_dset].max()))
-    for i in range ( len(df_train)):
-        f.write('{} {}\n'.format(df_train[dt_dset][i], df_train[rcpower_dset][i]))
-
-
-    print('Test dates: {} to {}'.format(df_test[dt_dset].min(), df_test[dt_dset].max()))
-    f.write("\nTest dataset\n")
-    f.write('Test dates: {} to {}\n\n'.format(df_test[dt_dset].min(), df_test[dt_dset].max()))
-    for i in range(len(df_train) , len(df_train)  + len(df_test)):
-        f.write('{} {}\n'.format(df_test[dt_dset][i], df_test[rcpower_dset][i]))
-
-    datePredict = df_test[dt_dset].values[0]
-    actvalPredict = df_test[rcpower_dset].values[0]
-
-    return df_train, df_val, df_test, datePredict,actvalPredict
-
-######################################################################################################################
-
-n_steps = 72  # number of time steps in supervised learning data
-              # x(t-n_step) x(t-n_step+1) ... x(t-1) x(t)   || x(t+1)
-#  Open file for reporting
-f=open("Imbalance_MLP_{}.log".format(n_steps),'w')
-f.write("MultiLayer Perceptron for Time Series Prediction\n\n\n ( with {} Time Steps\n\n\n".format(n_steps))
-
-# read the dataset into python
-csv_path="C:\\Users\\dmitr_000\\.keras\\datasets\\Imbalance_data.csv"
-# df = pd.read_csv(csv_path)
-# df.head()
-#
-# #%%time   T.B.D.
-#
-# # This code is copied from https://towardsdatascience.com/time-series-analysis-visualization-forecasting-with-lstm-77a905180eba
-# # with a few minor changes.
-# #
-# rcpower_dset= "Imbalance"
-# dt_dset ="Date Time"
-#
-#
-# df[rcpower_dset] = pd.to_numeric(df[rcpower_dset], errors='coerce')
-# df = df.dropna(subset=[rcpower_dset])
-#
-#
-# df[dt_dset] = pd.to_datetime(df[dt_dset], dayfirst=True)
-#
-# df = df.loc[:, [dt_dset, rcpower_dset]]
-# df.sort_values(dt_dset, inplace=True, ascending=True)
-# df = df.reset_index(drop=True)
-#
-# print('Number of rows and columns after removing missing values:', df.shape)
-# print('The time series starts from: ', df[dt_dset].min())
-# print('The time series ends on: ', df[dt_dset].max())
-#
-# df.info()
-# df.head(10)
-
-df, dt_dset,  rcpower_dset = read_my_dataset(csv_path)
-
-test_cutoff_date = df[dt_dset].max() - timedelta(hours=1)      # The last 6 timesteps are test data
-val_cutoff_date = test_cutoff_date - timedelta(days=1)         #  The 24 previous timestaps are validation data
-
-
-
-
-df_test = df[df[dt_dset] > test_cutoff_date]
-
-df_train = df[df[dt_dset] <= test_cutoff_date]
-
-#check out the datasets
-
-print('Train dates: {} to {}'.format(df_train[dt_dset].min(), df_train[dt_dset].max()))
-f.write("\nTrain dataset\n")
-f.write('Train dates: {} to {}\n\n'.format(df_train[dt_dset].min(), df_train[dt_dset].max()))
-for i in range ( len(df_train)):
-    f.write('{} {}\n'.format(df_train[dt_dset][i], df_train[rcpower_dset][i]))
-
-
-print('Test dates: {} to {}'.format(df_test[dt_dset].min(), df_test[dt_dset].max()))
-f.write("\nTest dataset\n")
-f.write('Test dates: {} to {}\n\n'.format(df_test[dt_dset].min(), df_test[dt_dset].max()))
-for i in range(len(df_train) , len(df_train)  + len(df_test)):
-    f.write('{} {}\n'.format(df_test[dt_dset][i], df_test[rcpower_dset][i]))
-
-datePredict = df_test[dt_dset].values[0]
-actvalPredict = df_test[rcpower_dset].values[0]
-
-
-
-rcpower = df_train[rcpower_dset].values
-print(rcpower.shape)
-X, y = split_sequence(rcpower, n_steps)
-x_input =np.array(rcpower[-n_steps:])
-# reserv e 200 for evaluation
-rcpower_val=rcpower[-200:]
-X_val, y_val = split_sequence(rcpower_val, n_steps)
-# # define input sequence
-# raw_seq = [10, 20, 30, 40, 50, 60, 70, 80, 90]
-# # choose a number of time steps
-# n_steps = 3
-# # split into samples
-# X, y = split_sequence(raw_seq, n_steps)
-
-
-# define model
-model = Sequential()
-model.add(Dense(100, activation='relu', input_dim=n_steps))
-#model.add(layers.Dropout(0.2))
-#model.add(Dense(16))
-#model.add(layers.Dropout(0.2))
-model.add(Dense(1))
-model.compile(optimizer='adam', loss='mse',metrics=[tf.keras.metrics.MeanSquaredError()])
-model.summary(print_fn=myprint)
-model.summary(print_fn=lambda x: f.write(x + '\n'))
-#     Dont work!!! plot_model(model, to_file='Model.png')
-
+# set model
+    model = setMLPModel( n_steps, n_features, hidden_neyron_number, dropout_factor,   f)
 
 # fit model
-history = model.fit(X, y, epochs=200, verbose=2,validation_data=(X_val, y_val),)
-print(history.history)
-f.write("\n\nTraining history {}".format(history.history))
+    history = fitModel(model, X, y, X_val, y_val, n_steps, n_features, n_epochs, logfolder, f=None)
 
-chart_MAE(history,n_steps, False)
-chart_MSE(history,n_steps, False)
+# predict
+    if len(rcpower_test_scaled)>n_steps:
+        rcpower_test_scaled_4predict=np.copy(rcpower_test_scaled)
+    else:
+        rcpower_test_scaled_4predict = np.concatenate((rcpower_val_scaled[(len(rcpower_val_scaled) -
+                                                                        n_steps ):], rcpower_test_scaled))
+    X_test, y_test = TimeSeries2SupervisedLearningData( rcpower_test_scaled_4predict, n_steps, f)
+    X_test = X_test.reshape((X_test.shape[0], X_test.shape[1]))
+    y_scaled_pred =model.predict(X_test)
+    # model returns not numpy vector. Need to reshape it
 
-#The returned "history" object holds a record of the loss values and metric values during training
-f.write("History \n{}".format(str(history.history)))
-f.write('\n\n\n Weights:\n {}'.format(model.weights))
-# demonstrate prediction
-#x_input = np.array([70, 80, 90])
+    y_pred =scaler.inverse_transform((y_scaled_pred))
 
-x_input = x_input.reshape((1, n_steps))
-f.write('\n\n\n\n\n\n\n Input for forecast {}'.format(x_input))
-yhat = model.predict(x_input, verbose=1)
+    y_scaled_pred.reshape(y_scaled_pred.shape[0])
+    y_pred.reshape(y_pred.shape[0])
+    chart_2series(df, "Test sequence scaled prediction", rcpower_dset, dt_dset, y_scaled_pred, y_test,
+                  len(y_scaled_pred), logfolder,False)
+
+    chart_2series(df, "Test sequence prediction", rcpower_dset, dt_dset, y_pred, rcpower_test,
+                  len(y_pred),logfolder,  False)
 
 
-f.write('{} '.format("\n\nForecast {}: Predict {}   Act.value {} ".format(str(datePredict), yhat,  actvalPredict)))
+    return model, history, scaler
 
-print("\n\n{}".format(yhat))
-f.close()
+def main():
+    dataset_properties = (CSV_PATH, DT_DSET, RCPOWER_DSET, DISCRET )
+    cut_off_properties = (TEST_CUT_OFF, VAL_CUT_OFF)
+    model_properties   = (HIDDEN_NEYRONS,DROPOUT)
+    training_properties= (N_STEPS, N_FEATURES, EPOCHS)
 
-#
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    logfolder = dir_path + "/" + TRAIN_PATH
+
+
+
+
+    model, history, scaler  = driveMLP(dataset_properties, cut_off_properties,model_properties,training_properties,
+                                       logfolder, f)
+
+
+    model_saving(FOLDER_PATH_SAVED_MLP_MODEL, model, scaler, f)
+    return 0
+
+
+if __name__ == "__main__":
+    random.set_seed(MAGIC_SEED)
+
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    file_for_logging = dir_path + "/" +TRAIN_PATH +"/" + LOG_FILE_NAME + "_" + Path(__file__).stem + ".log"
+    os.makedirs(os.path.dirname(file_for_logging), exist_ok=True)
+    with open(file_for_logging, "w") as f:
+         main()
+    f.close()
